@@ -446,14 +446,14 @@ async function run() {
               webIdentityToken
             });
 
-            core.info('Assumed role')
+            core.info('Successfully assumed role')
 
             return creds
           },
           {
             retries: 5,
             randomize: true,
-            factor: 5,
+            factor: 2,
             onRetry: function (err) {
               core.error(err.message)
             }
