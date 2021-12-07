@@ -3,7 +3,8 @@ const aws = require('aws-sdk');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const async = require("async");
+// const async = require("async");
+const retry = require("retry");
 
 // The max time that a GitHub action is allowed to run is 6 hours.
 // That seems like a reasonable default to use if no role duration is defined.
@@ -351,32 +352,50 @@ async function run() {
 
     switch (method) {
       case 'github-oidc':
-        // try calling apiMethod 10 times with exponential backoff
-        // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
-        async.retry({
-          // errorFilter: function(err) {
-          //   return err.message === 'Temporary error'; // only retry on a specific error
-          // },
-          times: 10,
-          interval: function(retryCount) {
-            return 50 * Math.pow(2, retryCount);
-          }
-        }, async function() {
 
-          core.info('Getting Github OIDC token')
-
-          // TODO: CHeck env variable exist, do not try is not set
-          const token = await core.getIDToken('sts.amazonaws.com')
-
-          return token
-        }, function(err, token) {
-          core.info('Got Github OIDC token')
-          console.err(err)
-          console.log(token)
-
-          webIdentityToken = token
-          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        const operation = retry.operation({
+          retries: 5,
+          factor: 3,
+          minTimeout: 1 * 1000,
+          maxTimeout: 60 * 1000,
+          randomize: true,
         });
+
+        operation.attempt(async function(currentAttempt) {
+          core.info('Got Github OIDC token')
+          console.err(currentAttempt)
+          webIdentityToken = await core.getIDToken('sts.amazonaws.com')
+          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        })
+
+
+
+
+        // // try calling apiMethod 10 times with exponential backoff
+        // // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
+        // async.retry({
+        //   // errorFilter: function(err) {
+        //   //   return err.message === 'Temporary error'; // only retry on a specific error
+        //   // },
+        //   times: 10,
+        //   interval: function(retryCount) {
+        //     return 50 * Math.pow(2, retryCount);
+        //   }
+        // }, async function() {
+        //
+        //   core.info('Getting Github OIDC token')
+        //   // TODO: CHeck env variable exist, do not try is not set
+        //   const token = await core.getIDToken('sts.amazonaws.com')
+        //
+        //   return token
+        // }, function(err, token) {
+        //   core.info('Got Github OIDC token')
+        //   console.err(err)
+        //   console.log(token)
+        //
+        //   webIdentityToken = token
+        //   roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        // });
 
         break;
       case 'ec2':
@@ -392,30 +411,45 @@ async function run() {
     if (!method) {
       if(useGitHubOIDCProvider()) {
 
-        // try calling apiMethod 10 times with exponential backoff
-        // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
-        async.retry({
-          // errorFilter: function(err) {
-          //   return err.message === 'Temporary error'; // only retry on a specific error
-          // },
-          times: 10,
-          interval: function(retryCount) {
-            return 50 * Math.pow(2, retryCount);
-          }
-        }, async function() {
-          core.info('Getting Github OIDC token')
-          // TODO: CHeck env variable exist, do not try is not set
-          const token = await core.getIDToken('sts.amazonaws.com')
-
-          return token
-        }, function(err, token) {
-          console.err(err)
-          console.log(token)
-          core.info('Got Github OIDC token')
-
-          webIdentityToken = token
-          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        const operation = retry.operation({
+          retries: 5,
+          factor: 3,
+          minTimeout: 1 * 1000,
+          maxTimeout: 60 * 1000,
+          randomize: true,
         });
+
+        operation.attempt(async function(currentAttempt) {
+          core.info('Got Github OIDC token')
+          console.err(currentAttempt)
+          webIdentityToken = await core.getIDToken('sts.amazonaws.com')
+          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        })
+
+        // // try calling apiMethod 10 times with exponential backoff
+        // // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
+        // async.retry({
+        //   // errorFilter: function(err) {
+        //   //   return err.message === 'Temporary error'; // only retry on a specific error
+        //   // },
+        //   times: 10,
+        //   interval: function(retryCount) {
+        //     return 50 * Math.pow(2, retryCount);
+        //   }
+        // }, async function() {
+        //   core.info('Getting Github OIDC token')
+        //   // TODO: CHeck env variable exist, do not try is not set
+        //   const token = await core.getIDToken('sts.amazonaws.com')
+        //
+        //   return token
+        // }, function(err, token) {
+        //   console.err(err)
+        //   console.log(token)
+        //   core.info('Got Github OIDC token')
+        //
+        //   webIdentityToken = token
+        //   roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        // });
 
         // We don't validate the credentials here because we don't have them yet when using OIDC.
       } else {
@@ -433,20 +467,19 @@ async function run() {
     // Get role credentials if configured to do so
     if (roleToAssume) {
       let roleCredentials;
-      // try calling apiMethod 10 times with exponential backoff
-      // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
-      async.retry({
-        // errorFilter: function(err) {
-        //   return err.message === 'Temporary error'; // only retry on a specific error
-        // },
-        times: 10,
-        interval: function(retryCount) {
-          return 50 * Math.pow(2, retryCount);
-        }
-      }, async function() {
+
+      const operation = retry.operation({
+        retries: 5,
+        factor: 3,
+        minTimeout: 1 * 1000,
+        maxTimeout: 60 * 1000,
+        randomize: true,
+      });
+
+      operation.attempt(async function(currentAttempt) {
         core.info('Assuming role')
         // TODO: Filter errors
-        const creds = await assumeRole({
+        roleCredentials = await assumeRole({
           sourceAccountId,
           region,
           roleToAssume,
@@ -457,14 +490,40 @@ async function run() {
           webIdentityTokenFile,
           webIdentityToken
         });
+      })
 
-        return creds
-      }, function(err, assumeRoleCredentials) {
-        core.info('Assumed role')
-        console.err(err)
-        console.log(assumeRoleCredentials)
-        roleCredentials = assumeRoleCredentials
-      });
+      // // try calling apiMethod 10 times with exponential backoff
+      // // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
+      // async.retry({
+      //   // errorFilter: function(err) {
+      //   //   return err.message === 'Temporary error'; // only retry on a specific error
+      //   // },
+      //   times: 10,
+      //   interval: function(retryCount) {
+      //     return 50 * Math.pow(2, retryCount);
+      //   }
+      // }, async function() {
+      //   core.info('Assuming role')
+      //   // TODO: Filter errors
+      //   const roleCredentials = await assumeRole({
+      //     sourceAccountId,
+      //     region,
+      //     roleToAssume,
+      //     roleExternalId,
+      //     roleDurationSeconds,
+      //     roleSessionName,
+      //     roleSkipSessionTagging,
+      //     webIdentityTokenFile,
+      //     webIdentityToken
+      //   });
+      //
+      //   return creds
+      // }, function(err, assumeRoleCredentials) {
+      //   core.info('Assumed role')
+      //   console.err(err)
+      //   console.log(assumeRoleCredentials)
+      //   roleCredentials = assumeRoleCredentials
+      // });
 
       if (roleOutputCredentials) {
         outputCredentials({...roleCredentials, region});
