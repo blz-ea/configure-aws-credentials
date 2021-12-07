@@ -3,11 +3,13 @@ const aws = require('aws-sdk');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const async = require("async");
 
 // The max time that a GitHub action is allowed to run is 6 hours.
 // That seems like a reasonable default to use if no role duration is defined.
 const MAX_ACTION_RUNTIME = 6 * 3600;
 const DEFAULT_ROLE_DURATION_FOR_OIDC_ROLES = 3600;
+const DEFAULT_ROLE_DURATION = 3600;
 const USER_AGENT = 'configure-aws-credentials-for-github-actions';
 const MAX_TAG_VALUE_LENGTH = 256;
 const SANITIZATION_CHARACTER = '_';
@@ -290,7 +292,7 @@ async function run() {
     const maskAccountId = core.getInput('mask-aws-account-id', { required: false });
     const roleToAssume = core.getInput('role-to-assume', {required: false});
     const roleExternalId = core.getInput('role-external-id', { required: false });
-    let roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || MAX_ACTION_RUNTIME;
+    let roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
     const roleSessionName = core.getInput('role-session-name', { required: false }) || ROLE_SESSION_NAME;
     const roleSkipSessionTaggingInput = core.getInput('role-skip-session-tagging', { required: false }) || 'false';
     const roleSkipSessionTagging = roleSkipSessionTaggingInput.toLowerCase() === 'true';
@@ -299,6 +301,7 @@ async function run() {
     const roleOutputCredentials = roleOutputCredentialsInput.toLowerCase() === 'true';
     const dropCurrentCredentialsInput = core.getInput('drop-current-credentials', { required: false }) || 'false';
     const dropCurrentCredentials = dropCurrentCredentialsInput.toLowerCase() === 'true';
+    const method = core.getInput('method', { required: false });
 
     if (!region.match(REGION_REGEX)) {
       throw new Error(`Region is not valid: ${region}`);
@@ -345,33 +348,117 @@ async function run() {
     // The only way to assume the role is via GitHub's OIDC provider.
     let sourceAccountId;
     let webIdentityToken;
-    if(useGitHubOIDCProvider()) {
-      webIdentityToken = await core.getIDToken('sts.amazonaws.com');
-      roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION_FOR_OIDC_ROLES;
-      // We don't validate the credentials here because we don't have them yet when using OIDC.
-    } else {
-      // Regardless of whether any source credentials were provided as inputs,
-      // validate that the SDK can actually pick up credentials.  This validates
-      // cases where this action is on a self-hosted runner that doesn't have credentials
-      // configured correctly, and cases where the user intended to provide input
-      // credentials but the secrets inputs resolved to empty strings.
-      await validateCredentials(accessKeyId);
 
-      sourceAccountId = await exportAccountId(maskAccountId, region);
+    switch (method) {
+      case 'github-oidc':
+
+        // try calling apiMethod 10 times with exponential backoff
+        // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
+        async.retry({
+          // errorFilter: function(err) {
+          //   return err.message === 'Temporary error'; // only retry on a specific error
+          // },
+          times: 10,
+          interval: function(retryCount) {
+            return 50 * Math.pow(2, retryCount);
+          }
+        }, async function() {
+
+          // TODO: CHeck env variable exist, do not try is not set
+          const token = await core.getIDToken('sts.amazonaws.com')
+
+          return token
+        }, function(err, token) {
+          console.err(err)
+          console.log(token)
+
+          webIdentityToken = token
+          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        });
+
+        break;
+      case 'ec2':
+        await validateCredentials(accessKeyId);
+        sourceAccountId = await exportAccountId(maskAccountId, region);
+        break;
+      default:
+        if (method) {
+          throw new Error(`Method ${method} is not supported. Should be one of: ec2, github-oidc`)
+        }
+    }
+
+    if (!method) {
+      if(useGitHubOIDCProvider()) {
+
+        // try calling apiMethod 10 times with exponential backoff
+        // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
+        async.retry({
+          // errorFilter: function(err) {
+          //   return err.message === 'Temporary error'; // only retry on a specific error
+          // },
+          times: 10,
+          interval: function(retryCount) {
+            return 50 * Math.pow(2, retryCount);
+          }
+        }, async function() {
+
+          // TODO: CHeck env variable exist, do not try is not set
+          const token = await core.getIDToken('sts.amazonaws.com')
+
+          return token
+        }, function(err, token) {
+          console.err(err)
+          console.log(token)
+
+          webIdentityToken = token
+          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
+        });
+
+        // We don't validate the credentials here because we don't have them yet when using OIDC.
+      } else {
+        // Regardless of whether any source credentials were provided as inputs,
+        // validate that the SDK can actually pick up credentials.  This validates
+        // cases where this action is on a self-hosted runner that doesn't have credentials
+        // configured correctly, and cases where the user intended to provide input
+        // credentials but the secrets inputs resolved to empty strings.
+        await validateCredentials(accessKeyId);
+
+        sourceAccountId = await exportAccountId(maskAccountId, region);
+      }
     }
 
     // Get role credentials if configured to do so
     if (roleToAssume) {
-      const roleCredentials = await assumeRole({
-        sourceAccountId,
-        region,
-        roleToAssume,
-        roleExternalId,
-        roleDurationSeconds,
-        roleSessionName,
-        roleSkipSessionTagging,
-        webIdentityTokenFile,
-        webIdentityToken
+      let roleCredentials;
+      // try calling apiMethod 10 times with exponential backoff
+      // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
+      async.retry({
+        // errorFilter: function(err) {
+        //   return err.message === 'Temporary error'; // only retry on a specific error
+        // },
+        times: 10,
+        interval: function(retryCount) {
+          return 50 * Math.pow(2, retryCount);
+        }
+      }, async function() {
+        // TODO: Filter errors
+        const creds = await assumeRole({
+          sourceAccountId,
+          region,
+          roleToAssume,
+          roleExternalId,
+          roleDurationSeconds,
+          roleSessionName,
+          roleSkipSessionTagging,
+          webIdentityTokenFile,
+          webIdentityToken
+        });
+
+        return creds
+      }, function(err, assumeRoleCredentials) {
+        console.err(err)
+        console.log(assumeRoleCredentials)
+        roleCredentials = assumeRoleCredentials
       });
 
       if (roleOutputCredentials) {
