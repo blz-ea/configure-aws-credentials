@@ -3,8 +3,7 @@ const aws = require('aws-sdk');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-// const async = require("async");
-const retry = require("retry");
+const retry = require('async-retry');
 
 // The max time that a GitHub action is allowed to run is 6 hours.
 // That seems like a reasonable default to use if no role duration is defined.
@@ -353,50 +352,26 @@ async function run() {
     switch (method) {
       case 'github-oidc':
 
-        const operation = retry.operation({
-          retries: 5,
-          factor: 3,
-          minTimeout: 1 * 1000,
-          maxTimeout: 60 * 1000,
-          randomize: true,
-        });
-
-        operation.attempt(async function(currentAttempt) {
-          core.info('Got Github OIDC token')
-          console.err(currentAttempt)
-          webIdentityToken = await core.getIDToken('sts.amazonaws.com')
-          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
-        })
+        webIdentityToken = await retry(
+            async (bail) => {
+              core.info('Getting Github OIDC token')
+              const token = await core.getIDToken('sts.amazonaws.com')
 
 
+              // if (403 === res.status) {
+              //   // don't retry upon 403
+              //   bail(new Error('Unauthorized'));
+              //   return;
+              // }
 
+              core.info('Got Github OIDC token')
 
-        // // try calling apiMethod 10 times with exponential backoff
-        // // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
-        // async.retry({
-        //   // errorFilter: function(err) {
-        //   //   return err.message === 'Temporary error'; // only retry on a specific error
-        //   // },
-        //   times: 10,
-        //   interval: function(retryCount) {
-        //     return 50 * Math.pow(2, retryCount);
-        //   }
-        // }, async function() {
-        //
-        //   core.info('Getting Github OIDC token')
-        //   // TODO: CHeck env variable exist, do not try is not set
-        //   const token = await core.getIDToken('sts.amazonaws.com')
-        //
-        //   return token
-        // }, function(err, token) {
-        //   core.info('Got Github OIDC token')
-        //   console.err(err)
-        //   console.log(token)
-        //
-        //   webIdentityToken = token
-        //   roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
-        // });
-
+              return token
+            },
+            {
+              retries: 5,
+            }
+        );
         break;
       case 'ec2':
         await validateCredentials(accessKeyId);
@@ -411,46 +386,27 @@ async function run() {
     if (!method) {
       if(useGitHubOIDCProvider()) {
 
-        const operation = retry.operation({
-          retries: 5,
-          factor: 3,
-          minTimeout: 1 * 1000,
-          maxTimeout: 60 * 1000,
-          randomize: true,
-        });
 
-        operation.attempt(async function(currentAttempt) {
-          core.info('Got Github OIDC token')
-          console.err(currentAttempt)
-          webIdentityToken = await core.getIDToken('sts.amazonaws.com')
-          roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
-        })
+        webIdentityToken = await retry(
+        async (bail) => {
+              core.info('Getting Github OIDC token')
+              const token = await core.getIDToken('sts.amazonaws.com')
 
-        // // try calling apiMethod 10 times with exponential backoff
-        // // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
-        // async.retry({
-        //   // errorFilter: function(err) {
-        //   //   return err.message === 'Temporary error'; // only retry on a specific error
-        //   // },
-        //   times: 10,
-        //   interval: function(retryCount) {
-        //     return 50 * Math.pow(2, retryCount);
-        //   }
-        // }, async function() {
-        //   core.info('Getting Github OIDC token')
-        //   // TODO: CHeck env variable exist, do not try is not set
-        //   const token = await core.getIDToken('sts.amazonaws.com')
-        //
-        //   return token
-        // }, function(err, token) {
-        //   console.err(err)
-        //   console.log(token)
-        //   core.info('Got Github OIDC token')
-        //
-        //   webIdentityToken = token
-        //   roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
-        // });
 
+              // if (403 === res.status) {
+              //   // don't retry upon 403
+              //   bail(new Error('Unauthorized'));
+              //   return;
+              // }
+
+              core.info('Got Github OIDC token')
+
+              return token
+            },
+            {
+              retries: 5,
+            }
+        );
         // We don't validate the credentials here because we don't have them yet when using OIDC.
       } else {
         // Regardless of whether any source credentials were provided as inputs,
@@ -466,68 +422,31 @@ async function run() {
 
     // Get role credentials if configured to do so
     if (roleToAssume) {
-      let roleCredentials;
+      let roleCredentials = await retry(
+        async (bail) => {
+          core.info('Assuming role')
+          // TODO: Filter errors
+          const creds = await assumeRole({
+            sourceAccountId,
+            region,
+            roleToAssume,
+            roleExternalId,
+            roleDurationSeconds,
+            roleSessionName,
+            roleSkipSessionTagging,
+            webIdentityTokenFile,
+            webIdentityToken
+          });
 
-      const operation = retry.operation({
-        retries: 5,
-        factor: 3,
-        minTimeout: 1 * 1000,
-        maxTimeout: 60 * 1000,
-        randomize: true,
-      });
+          core.info('Assumed role')
 
-      operation.attempt(async function(currentAttempt) {
-        core.info('Assuming role')
-        // TODO: Filter errors
-        roleCredentials = await assumeRole({
-          sourceAccountId,
-          region,
-          roleToAssume,
-          roleExternalId,
-          roleDurationSeconds,
-          roleSessionName,
-          roleSkipSessionTagging,
-          webIdentityTokenFile,
-          webIdentityToken
-        });
+          return creds
+          },
+          {
+            retries: 5,
+          }
+      );
 
-        console.log("cc", roleCredentials)
-
-      })
-
-      // // try calling apiMethod 10 times with exponential backoff
-      // // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
-      // async.retry({
-      //   // errorFilter: function(err) {
-      //   //   return err.message === 'Temporary error'; // only retry on a specific error
-      //   // },
-      //   times: 10,
-      //   interval: function(retryCount) {
-      //     return 50 * Math.pow(2, retryCount);
-      //   }
-      // }, async function() {
-      //   core.info('Assuming role')
-      //   // TODO: Filter errors
-      //   const roleCredentials = await assumeRole({
-      //     sourceAccountId,
-      //     region,
-      //     roleToAssume,
-      //     roleExternalId,
-      //     roleDurationSeconds,
-      //     roleSessionName,
-      //     roleSkipSessionTagging,
-      //     webIdentityTokenFile,
-      //     webIdentityToken
-      //   });
-      //
-      //   return creds
-      // }, function(err, assumeRoleCredentials) {
-      //   core.info('Assumed role')
-      //   console.err(err)
-      //   console.log(assumeRoleCredentials)
-      //   roleCredentials = assumeRoleCredentials
-      // });
-      console.log("creds", roleCredentials)
       if (roleOutputCredentials) {
         outputCredentials({...roleCredentials, region});
       } else {
