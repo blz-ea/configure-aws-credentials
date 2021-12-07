@@ -374,6 +374,7 @@ async function run() {
         );
         break;
       case 'ec2':
+        core.info('Using ec2 identity to assume role')
         await validateCredentials(accessKeyId);
         sourceAccountId = await exportAccountId(maskAccountId, region);
         break;
@@ -385,8 +386,6 @@ async function run() {
 
     if (!method) {
       if(useGitHubOIDCProvider()) {
-
-
         webIdentityToken = await retry(
         async (bail) => {
               core.info('Getting Github OIDC token')
