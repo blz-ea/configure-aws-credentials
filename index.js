@@ -351,12 +351,14 @@ async function run() {
 
     switch (method) {
       case 'github-oidc':
-
+        // TODO: Fail is no identity
         webIdentityToken = await retry(
             async (bail) => {
               core.info('Getting Github OIDC token')
               const token = await core.getIDToken('sts.amazonaws.com')
 
+
+              // TODO:  is not authorized to perform: sts:AssumeRole on resource - bail
 
               // if (403 === res.status) {
               //   // don't retry upon 403
@@ -389,6 +391,7 @@ async function run() {
 
     if (!method) {
       if(useGitHubOIDCProvider()) {
+        // TODO: Fail is no identity
         webIdentityToken = await retry(
         async (bail) => {
               core.info('Getting Github OIDC token')
@@ -429,31 +432,37 @@ async function run() {
     if (roleToAssume) {
       let roleCredentials = await retry(
         async (bail) => {
-          core.info('Assuming role')
-          // TODO: Filter errors, show errors, onRetry
-          const creds = await assumeRole({
-            sourceAccountId,
-            region,
-            roleToAssume,
-            roleExternalId,
-            roleDurationSeconds,
-            roleSessionName,
-            roleSkipSessionTagging,
-            webIdentityTokenFile,
-            webIdentityToken
-          });
+            core.info('Assuming role')
+            // TODO: Filter errors, show errors, onRetry
+            const creds = await assumeRole({
+              sourceAccountId,
+              region,
+              roleToAssume,
+              roleExternalId,
+              roleDurationSeconds,
+              roleSessionName,
+              roleSkipSessionTagging,
+              webIdentityTokenFile,
+              webIdentityToken
+            });
 
-          core.info('Assumed role')
+            core.info('Assumed role')
 
-          return creds
+            return creds
           },
           {
             retries: 5,
+            randomize: true,
+            factor: 5,
             onRetry: function (err) {
               core.error(err.message)
             }
           }
       );
+
+      if (!roleCredentials) {
+        throw new Error('Unable to retrieve credentials')
+      }
 
       if (roleOutputCredentials) {
         outputCredentials({...roleCredentials, region});
