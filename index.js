@@ -351,7 +351,6 @@ async function run() {
 
     switch (method) {
       case 'github-oidc':
-
         // try calling apiMethod 10 times with exponential backoff
         // (i.e. intervals of 100, 200, 400, 800, 1600, ... milliseconds)
         async.retry({
@@ -364,11 +363,14 @@ async function run() {
           }
         }, async function() {
 
+          core.info('Getting Github OIDC token')
+
           // TODO: CHeck env variable exist, do not try is not set
           const token = await core.getIDToken('sts.amazonaws.com')
 
           return token
         }, function(err, token) {
+          core.info('Got Github OIDC token')
           console.err(err)
           console.log(token)
 
@@ -401,7 +403,7 @@ async function run() {
             return 50 * Math.pow(2, retryCount);
           }
         }, async function() {
-
+          core.info('Getting Github OIDC token')
           // TODO: CHeck env variable exist, do not try is not set
           const token = await core.getIDToken('sts.amazonaws.com')
 
@@ -409,6 +411,7 @@ async function run() {
         }, function(err, token) {
           console.err(err)
           console.log(token)
+          core.info('Got Github OIDC token')
 
           webIdentityToken = token
           roleDurationSeconds = core.getInput('role-duration-seconds', {required: false}) || DEFAULT_ROLE_DURATION;
@@ -441,6 +444,7 @@ async function run() {
           return 50 * Math.pow(2, retryCount);
         }
       }, async function() {
+        core.info('Assuming role')
         // TODO: Filter errors
         const creds = await assumeRole({
           sourceAccountId,
@@ -456,6 +460,7 @@ async function run() {
 
         return creds
       }, function(err, assumeRoleCredentials) {
+        core.info('Assumed role')
         console.err(err)
         console.log(assumeRoleCredentials)
         roleCredentials = assumeRoleCredentials
