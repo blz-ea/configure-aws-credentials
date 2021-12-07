@@ -370,6 +370,9 @@ async function run() {
             },
             {
               retries: 5,
+              onRetry: function (err) {
+                core.error(err.message)
+              }
             }
         );
         break;
@@ -404,6 +407,9 @@ async function run() {
             },
             {
               retries: 5,
+              onRetry: function (err) {
+                core.error(err.message)
+              }
             }
         );
         // We don't validate the credentials here because we don't have them yet when using OIDC.
@@ -424,7 +430,7 @@ async function run() {
       let roleCredentials = await retry(
         async (bail) => {
           core.info('Assuming role')
-          // TODO: Filter errors
+          // TODO: Filter errors, show errors, onRetry
           const creds = await assumeRole({
             sourceAccountId,
             region,
@@ -443,6 +449,9 @@ async function run() {
           },
           {
             retries: 5,
+            onRetry: function (err) {
+              core.error(err.message)
+            }
           }
       );
 
