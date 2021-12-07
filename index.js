@@ -490,6 +490,9 @@ async function run() {
           webIdentityTokenFile,
           webIdentityToken
         });
+
+        console.log("cc", roleCredentials)
+
       })
 
       // // try calling apiMethod 10 times with exponential backoff
@@ -524,7 +527,7 @@ async function run() {
       //   console.log(assumeRoleCredentials)
       //   roleCredentials = assumeRoleCredentials
       // });
-
+      console.log("creds", roleCredentials)
       if (roleOutputCredentials) {
         outputCredentials({...roleCredentials, region});
       } else {
